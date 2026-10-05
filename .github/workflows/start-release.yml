@@ -1,0 +1,53 @@
+name: Start release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão do launcher (ex.: v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: start-release
+  cancel-in-progress: false
+
+jobs:
+  tag_and_dispatch:
+    name: Tag main and start signed release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create version tag and start release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Rode a partir do branch main (atual: $GITHUB_REF)"; exit 1
+          fi
+          if ! [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Versão inválida: '$RELEASE_VERSION' (use vX.Y.Z)"; exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "::error::A tag ${RELEASE_VERSION} já existe; releases são imutáveis, escolha outra versão"; exit 1
+          fi
+          ci_status=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&event=push&per_page=1" \
+            --jq '.workflow_runs[0] | if . == null then "não executado" elif .status != "completed" then "em andamento" else .conclusion end')
+          if [ "$ci_status" != success ]; then
+            echo "::error::O CI do commit ${GITHUB_SHA} não está verde (${ci_status}); corrija antes de lançar"; exit 1
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RELEASE_VERSION}" -f sha="$GITHUB_SHA" >/dev/null
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+            -f ref="$RELEASE_VERSION" >/dev/null
+          {
+            echo "### Release ${RELEASE_VERSION} iniciada"
+            echo "Commit: \`${GITHUB_SHA}\`"
+            echo "Acompanhe o workflow **Release** na aba Actions."
+          } >> "$GITHUB_STEP_SUMMARY"

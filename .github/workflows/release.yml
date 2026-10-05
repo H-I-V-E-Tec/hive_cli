@@ -3,6 +3,9 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # Dispatched by start-release.yml with ref=<tag>: tags created with the
+  # workflow token do not trigger push events.
+  workflow_dispatch:
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -29,6 +32,9 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: |
+          # The signing identity is release.yml@<ref>; only a tag ref yields the
+          # identity the launcher accepts.
+          test "$GITHUB_REF" = "refs/tags/$VERSION"
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
           test "$(git rev-list -n 1 "$VERSION")" = "$GITHUB_SHA"
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
