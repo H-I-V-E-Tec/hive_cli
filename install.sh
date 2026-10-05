@@ -72,7 +72,9 @@ fi
 
 mkdir -p "$TMP/x"
 tar -xzf "$TMP/$ASSET" -C "$TMP/x" hive || die "pacote não contém o binário 'hive'"
-[ -f "$TMP/x/hive" ] && [ ! -L "$TMP/x/hive" ] || die "binário inválido no pacote"
+if [ ! -f "$TMP/x/hive" ] || [ -L "$TMP/x/hive" ]; then
+    die "binário inválido no pacote"
+fi
 "$TMP/x/hive" version --json >/dev/null 2>&1 || die "o binário baixado não executa nesta máquina"
 
 umask 077
