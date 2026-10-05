@@ -1,0 +1,83 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Build, sign and publish
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate immutable version tag
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          test "$(git rev-list -n 1 "$VERSION")" = "$GITHUB_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build archives
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            goos="${target%/*}"; goarch="${target#*/}"
+            bin=hive; [ "$goos" = windows ] && bin=hive.exe
+            work="$(mktemp -d)"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -buildvcs=true \
+              -ldflags="-s -w -X main.Version=${VERSION}" -o "$work/$bin" .
+            asset="hive-cli-${VERSION}-${goos}-${goarch}"
+            if [ "$goos" = windows ]; then
+              (cd "$work" && zip -q -X "$GITHUB_WORKSPACE/dist/${asset}.zip" "$bin")
+            else
+              tar -C "$work" -czf "dist/${asset}.tar.gz" "$bin"
+            fi
+          done
+          cp install.sh dist/install.sh
+          (cd dist && sha256sum * > SHA256SUMS)
+      - name: Smoke test the linux/amd64 build
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          work="$(mktemp -d)"
+          tar -xzf "dist/hive-cli-${VERSION}-linux-amd64.tar.gz" -C "$work" hive
+          test "$("$work/hive" version --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')" = "$VERSION"
+      - uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+        with:
+          cosign-release: v2.5.2
+      - name: Sign SHA256SUMS (legacy bundle for install.sh, standard bundle for hive update)
+        run: |
+          cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+          cosign sign-blob --yes --new-bundle-format --bundle dist/SHA256SUMS.sigstore-bundle.json dist/SHA256SUMS
+          cosign verify-blob --new-bundle-format --bundle dist/SHA256SUMS.sigstore-bundle.json \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            dist/SHA256SUMS
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: HIVE launcher ${{ github.ref_name }}
+          files: dist/*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
