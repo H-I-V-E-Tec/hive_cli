@@ -134,6 +134,7 @@ Produtos:
 
 Executar um produto:
   hive <produto> [args...]               ex.: hive mind search <programa> <consulta>
+  hive atlas                            inicia o MCP Atlas (Python 3.10+)
 
 Outros comandos (login, setup, doctor, search...) são repassados ao Hive Mind.
 `, a.Version)
@@ -144,7 +145,7 @@ func (a *App) state() (*store.State, error) {
 }
 
 func (a *App) binaryPath(p registry.Product, version string) string {
-	return filepath.Join(a.Store.VersionDir(p.Name, version), registry.ExecutableName(p.Command, a.GOOS))
+	return filepath.Join(a.Store.VersionDir(p.Name, version), p.InstalledName(a.GOOS))
 }
 
 func (a *App) run(p registry.Product, args []string) int {
@@ -158,7 +159,12 @@ func (a *App) run(p registry.Product, args []string) int {
 		fmt.Fprintf(a.Stderr, "hive: %s não está instalado; rode: hive install %s\n", p.Name, p.Name)
 		return exitUsage
 	}
-	code, err := a.Dispatch(a.binaryPath(p, ps.Active), args, dispatch.Env(a.Environ, a.Launcher))
+	command, productArgs, err := dispatch.ProductCommand(p, a.binaryPath(p, ps.Active), args, a.GOOS)
+	if err != nil {
+		fmt.Fprintln(a.Stderr, "hive:", err)
+		return exitError
+	}
+	code, err := a.Dispatch(command, productArgs, dispatch.Env(a.Environ, a.Launcher))
 	if err != nil {
 		fmt.Fprintf(a.Stderr, "hive: não foi possível executar %s: %v\n", p.Name, err)
 		return exitError

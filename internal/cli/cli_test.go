@@ -3,11 +3,14 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/H-I-V-E-Tec/hive_cli/internal/registry"
 	"github.com/H-I-V-E-Tec/hive_cli/internal/store"
 )
 
@@ -184,5 +187,63 @@ func TestHelpWithoutArgs(t *testing.T) {
 	app, got, stdout, _ := newTestApp(t)
 	if code := app.Run(nil); code != exitOK || got.binary != "" || !strings.Contains(stdout.String(), "hive install") {
 		t.Fatalf("bare hive should print help: code=%d out=%q", code, stdout.String())
+	}
+}
+
+func TestAtlasDispatchUsesPythonAndActivePackage(t *testing.T) {
+	app, got, _, _ := newTestApp(t)
+	pythonDir := t.TempDir()
+	python := filepath.Join(pythonDir, registry.ExecutableName("python3", runtime.GOOS))
+	if err := os.WriteFile(python, []byte("test interpreter; dispatch is mocked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", pythonDir)
+	st, _ := app.Store.Load()
+	st.Product("atlas").Active = "v0.2.0"
+	if err := app.Store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"atlas"}, {"atlas", "version", "--json"}} {
+		if code := app.Run(args); code != 7 {
+			t.Fatalf("exit = %d", code)
+		}
+		want := filepath.Join(app.Store.VersionDir("atlas", "v0.2.0"), "hive-atlas.pyz")
+		if got.binary != python || len(got.args) < 2 || got.args[0] != "-I" || got.args[1] != want {
+			t.Fatalf("Atlas dispatch: %+v", got)
+		}
+		if strings.Join(got.args[2:], " ") != strings.Join(args[1:], " ") {
+			t.Fatalf("Atlas arguments changed: %v", got.args)
+		}
+	}
+}
+
+func TestVersionReportsAtlasAndMindIndependently(t *testing.T) {
+	app, _, stdout, _ := newTestApp(t)
+	installState(t, app, "v1.3.10")
+	st, _ := app.Store.Load()
+	atlas := st.Product("atlas")
+	atlas.Active, atlas.Previous = "v0.2.0", []string{"v0.1.0"}
+	atlas.Latest, atlas.CheckedAt = "v0.3.0", time.Now()
+	if err := app.Store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	if code := app.Run([]string{"version"}); code != exitOK {
+		t.Fatalf("exit = %d", code)
+	}
+	for _, want := range []string{"atlas", "v0.2.0", "anterior: v0.1.0", "disponível: v0.3.0", "mind", "v1.3.10"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("version missing %q: %s", want, stdout.String())
+		}
+	}
+	stdout.Reset()
+	if code := app.Run([]string{"version", "--json"}); code != exitOK {
+		t.Fatalf("JSON exit = %d", code)
+	}
+	var report versionReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Products["atlas"].Active != "v0.2.0" || report.Products["mind"].Active != "v1.3.10" {
+		t.Fatalf("versions mixed: %+v", report.Products)
 	}
 }
