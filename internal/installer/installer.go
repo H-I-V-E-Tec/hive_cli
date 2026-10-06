@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/mod/semver"
 
+	"github.com/H-I-V-E-Tec/hive_cli/internal/dispatch"
 	"github.com/H-I-V-E-Tec/hive_cli/internal/registry"
 	"github.com/H-I-V-E-Tec/hive_cli/internal/release"
 	"github.com/H-I-V-E-Tec/hive_cli/internal/store"
@@ -118,6 +119,10 @@ func (in *Installer) FetchVerified(ctx context.Context, p registry.Product, vers
 		return nil, err
 	}
 	in.logf("✓ checksum de %s verificado", asset)
+	if p.Runtime == registry.PythonZipapp {
+		// The complete zipapp is installed as a single file; nothing is extracted.
+		return archive, nil
+	}
 	return extractBinary(archive, in.GOOS == "windows", registry.ExecutableName(p.ArchiveBinary, in.GOOS), maxBinary)
 }
 
@@ -168,8 +173,12 @@ func (in *Installer) Install(ctx context.Context, p registry.Product, version st
 		return Result{}, err
 	}
 	defer os.RemoveAll(staging)
-	exeName := registry.ExecutableName(p.Command, in.GOOS)
-	if err := os.WriteFile(filepath.Join(staging, exeName), binary, 0o755); err != nil {
+	exeName := p.InstalledName(in.GOOS)
+	mode := os.FileMode(0o755)
+	if p.Runtime == registry.PythonZipapp {
+		mode = 0o644
+	}
+	if err := os.WriteFile(filepath.Join(staging, exeName), binary, mode); err != nil {
 		return Result{}, err
 	}
 	if err := in.smoke(ctx, p, filepath.Join(staging, exeName), version); err != nil {
@@ -202,7 +211,11 @@ func (in *Installer) Install(ctx context.Context, p registry.Product, version st
 func (in *Installer) smoke(ctx context.Context, p registry.Product, binary, version string) error {
 	ctx, cancel := context.WithTimeout(ctx, smokeTimeout)
 	defer cancel()
-	reported, err := in.Smoke(ctx, binary, p.SmokeArgs)
+	command, args, err := dispatch.ProductCommand(p, binary, p.SmokeArgs, in.GOOS)
+	if err != nil {
+		return err
+	}
+	reported, err := in.Smoke(ctx, command, args)
 	if err != nil {
 		return fmt.Errorf("teste do binário falhou (%s): %w", binary, err)
 	}
@@ -265,7 +278,7 @@ func (in *Installer) Uninstall(p registry.Product) error {
 }
 
 func (in *Installer) BinaryPath(p registry.Product, version string) string {
-	return filepath.Join(in.Store.VersionDir(p.Name, version), registry.ExecutableName(p.Command, in.GOOS))
+	return filepath.Join(in.Store.VersionDir(p.Name, version), p.InstalledName(in.GOOS))
 }
 
 // prune keeps only the active and retained previous versions on disk.

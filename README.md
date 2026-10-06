@@ -1,12 +1,13 @@
 # hive — launcher dos produtos HIVE
 
-`hive` instala, atualiza, reverte e executa os produtos HIVE (hoje: Hive Mind). Ele não contém nenhum produto: baixa cada um da release assinada do repositório do produto, verifica e só então ativa.
+`hive` instala, atualiza, reverte e executa os produtos HIVE: Hive Mind e Hive Atlas. Ele baixa cada um da release assinada do repositório do produto, verifica e só então ativa.
 
 ## Instalar
 
 ```bash
 curl -fsSL https://github.com/H-I-V-E-Tec/hive_cli/releases/latest/download/install.sh | sh
 hive install mind
+hive install atlas  # opcional; exige Python 3.10+ no PATH
 hive login     # usuário e senha do HIVE Center
 hive setup     # registra o Mind nos agentes encontrados (Claude Code, Claude Desktop, Codex)
 hive doctor
@@ -27,8 +28,19 @@ O bootstrap instala só o launcher em `~/.hive/bin` (sem `sudo`) e põe essa pas
 | `hive version [--json]` | Versões do launcher e dos produtos; mostra atualização disponível conhecida há menos de 24 h. |
 | `hive list` | Produtos disponíveis. |
 | `hive <produto> [args]` | Executa o produto. `hive mind` sem argumentos inicia o MCP. |
+| `hive atlas` | Inicia o MCP Atlas via stdio, com a biblioteca local incluída no pacote. |
+| `hive atlas version --json` | Identidade do cliente Atlas instalado (tag e SHA do commit). |
 
 Comandos que o launcher não conhece (`login`, `setup`, `doctor`, `search`…) são repassados ao Hive Mind. Ao repassar, o launcher define `HIVE_LAUNCHER`, e o `hive setup` registra no agente o caminho estável do launcher (`hive mind`), que continua válido depois de cada update.
+
+O Atlas usa o comando estável `hive atlas`; registre no agente o caminho absoluto
+do launcher com argumentos `["atlas"]`. `hive setup` continua registrando o Mind.
+O Atlas usa `python3` ou `python` do PATH (no Windows, tenta primeiro `py -3`),
+em modo isolado, e exige Python 3.10 ou superior. Não precisa de dependências
+Python. Credenciais e configuração são herdadas do ambiente; sem credencial do
+Qdrant, usa a biblioteca local. O feedback persiste em
+`~/.hive/atlas/feedback.jsonl` (`$HIVE_HOME/atlas/feedback.jsonl` quando definido).
+Veja o [guia do Atlas](../hive_atlas/docs/deploy.md) para o registro no agente.
 
 ## Segurança
 
@@ -36,7 +48,7 @@ Comandos que o launcher não conhece (`login`, `setup`, `doctor`, `search`…) s
 - **Assinatura sempre verificada** com `sigstore-go`: certificado Fulcio com SCT, entrada no log de transparência Rekor e carimbo de tempo observado. A raiz de confiança do Sigstore é obtida por TUF e guardada em `~/.hive/sigstore`.
 - **Checksum** do pacote conferido contra o `SHA256SUMS` assinado.
 - **Sem downgrade** silencioso: uma versão mais antiga exige `--allow-downgrade`.
-- **Ativação atômica:** o binário é testado (`<produto> version`) antes de virar a versão ativa; a anterior fica em disco para `hive rollback`.
+- **Ativação atômica:** o executável ou zipapp é testado (`<produto> version`) antes de virar a versão ativa; a anterior fica em disco para `hive rollback`.
 - **Extração defensiva:** só o executável esperado é lido; caminhos com `..`, absolutos, symlinks e entradas duplicadas abortam a instalação.
 - **Transporte:** somente HTTPS, redirect para HTTP recusado, limites de tamanho e tempo.
 - `~/.hive` é privado (0700) e é recusado se outros usuários puderem escrever nele. Não há telemetria nem atualização automática.
@@ -49,6 +61,14 @@ Para entrar no registro, a release `vX.Y.Z` de um produto precisa publicar:
 2. `SHA256SUMS` no formato do `sha256sum`, com o nome do arquivo sem `./`.
 3. `SHA256SUMS.sigstore-bundle.json`: bundle Sigstore **padrão** (`cosign sign-blob --new-bundle-format`) sobre o `SHA256SUMS`, assinado pelo workflow `.github/workflows/release.yml` do próprio repositório, rodando na tag.
 4. O executável deve responder a `version` (ou aos `SmokeArgs` do registro) com JSON contendo `{"version": "vX.Y.Z"}`.
+
+Produtos Python usam `Runtime: PythonZipapp` no registro e publicam um único
+`<prefixo>-vX.Y.Z.pyz` para todas as plataformas (Atlas: `atlas-vX.Y.Z.pyz`).
+O zipapp contém código, biblioteca e identidade de release. Ele usa os mesmos
+`SHA256SUMS`, bundle Sigstore padrão, verificação de origem e teste de versão
+dos produtos nativos. O pacote completo é mantido sem extração e executado com
+Python 3.10+, inclusive durante instalação e rollback. A ausência do runtime ou
+um teste de versão falho impede a ativação.
 
 Releases que publicam só o bundle antigo do cosign (`SHA256SUMS.sigstore.json`) são recusadas pelo launcher.
 

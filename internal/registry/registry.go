@@ -8,6 +8,9 @@ import "fmt"
 // OIDCIssuer is the issuer of the keyless certificates used to sign releases.
 const OIDCIssuer = "https://token.actions.githubusercontent.com"
 
+// PythonZipapp is a portable, single-file Python application, not a native binary.
+const PythonZipapp = "python-zipapp"
+
 type Product struct {
 	Name        string
 	Description string
@@ -19,6 +22,8 @@ type Product struct {
 	ArchiveBinary string
 	// Command is the executable name once installed, without ".exe".
 	Command string
+	// Runtime is empty for native binaries, or PythonZipapp for a .pyz client.
+	Runtime string
 	// SmokeArgs must print JSON containing {"version": "<tag>"}.
 	SmokeArgs []string
 }
@@ -30,11 +35,22 @@ func (p Product) SignerIdentity(version string) string {
 }
 
 func (p Product) AssetName(version, goos, goarch string) string {
+	if p.Runtime == PythonZipapp {
+		return fmt.Sprintf("%s-%s.pyz", p.AssetPrefix, version)
+	}
 	ext := "tar.gz"
 	if goos == "windows" {
 		ext = "zip"
 	}
 	return fmt.Sprintf("%s-%s-%s-%s.%s", p.AssetPrefix, version, goos, goarch, ext)
+}
+
+// InstalledName keeps the portable extension on every OS, including Windows.
+func (p Product) InstalledName(goos string) string {
+	if p.Runtime == PythonZipapp {
+		return p.Command
+	}
+	return ExecutableName(p.Command, goos)
 }
 
 func ExecutableName(base, goos string) string {
@@ -64,6 +80,15 @@ var products = []Product{
 		ArchiveBinary: "hive",
 		Command:       "hive-mind",
 		SmokeArgs:     []string{"version"},
+	},
+	{
+		Name:        "atlas",
+		Description: "Hive Atlas: biblioteca de sinais e recomendações (MCP; Python 3.10+)",
+		Repo:        "H-I-V-E-Tec/hive_atlas",
+		AssetPrefix: "atlas",
+		Command:     "hive-atlas.pyz",
+		Runtime:     PythonZipapp,
+		SmokeArgs:   []string{"version", "--json"},
 	},
 }
 
