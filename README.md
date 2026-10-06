@@ -7,10 +7,14 @@
 ```bash
 curl -fsSL https://github.com/H-I-V-E-Tec/hive_cli/releases/latest/download/install.sh | sh
 hive install mind
-hive version
+hive login     # usuário e senha do HIVE Center
+hive setup     # registra o Mind nos agentes encontrados (Claude Code, Claude Desktop, Codex)
+hive doctor
 ```
 
-O bootstrap instala só o launcher em `~/.hive/bin` (sem `sudo`) e põe essa pasta à frente no `PATH`. Com `cosign` instalado, ele também verifica a assinatura do próprio launcher; sem ele, verifica o checksum.
+Nenhuma URL precisa ser informada: o Mind já vem com o HIVE Center padrão.
+
+O bootstrap instala só o launcher em `~/.hive/bin` (sem `sudo`) e põe essa pasta no `PATH` dos terminais novos (`.zshrc`, `.bashrc`, `.profile`; o arquivo do shell atual é criado se não existir). Quando `~/.local/bin` já está no `PATH`, como na maioria das distribuições Linux, cria também o atalho `~/.local/bin/hive`, e o comando funciona no mesmo terminal. Com `cosign` instalado, ele também verifica a assinatura do próprio launcher; sem ele, verifica o checksum.
 
 ## Comandos
 
