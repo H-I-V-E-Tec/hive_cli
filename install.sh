@@ -84,22 +84,54 @@ mv -f "$TMP/x/hive" "$BIN_DIR/hive"
 chmod 755 "$BIN_DIR/hive"
 info "instalado em $BIN_DIR/hive"
 
+# A `curl | sh` cannot change the PATH of the shell that ran it. When
+# ~/.local/bin is already on PATH (default on most Linux distributions), a
+# symlink there makes `hive` usable right away.
+LOCAL_BIN="$HOME/.local/bin"
+LINKED=""
+case ":$PATH:" in
+    *":$LOCAL_BIN:"*)
+        if [ -L "$LOCAL_BIN/hive" ] && [ "$(readlink "$LOCAL_BIN/hive")" = "$BIN_DIR/hive" ]; then
+            LINKED=1
+        elif [ -e "$LOCAL_BIN/hive" ] || [ -L "$LOCAL_BIN/hive" ]; then
+            warn "$LOCAL_BIN/hive já existe e não aponta para o launcher; não foi alterado"
+        else
+            mkdir -p "$LOCAL_BIN"
+            ln -s "$BIN_DIR/hive" "$LOCAL_BIN/hive"
+            LINKED=1
+            info "atalho criado em $LOCAL_BIN/hive"
+        fi
+        ;;
+esac
+
 LINE="export PATH=\"$BIN_DIR:\$PATH\""
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *)
+        # Create the rc file of the current shell when it does not exist yet,
+        # so new terminals find ~/.hive/bin.
+        case "${SHELL:-}" in
+            */zsh) SHELL_RC="$HOME/.zshrc" ;;
+            */bash) SHELL_RC="$HOME/.bashrc" ;;
+            *) SHELL_RC="" ;;
+        esac
+        if [ -n "$SHELL_RC" ] && [ ! -e "$SHELL_RC" ]; then
+            : > "$SHELL_RC"
+        fi
         for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
             if [ -f "$rc" ] && ! grep -Fqx "$LINE" "$rc"; then
                 printf '\n# HIVE launcher\n%s\n' "$LINE" >> "$rc"
                 info "PATH atualizado em $rc"
             fi
         done
-        warn "abra um terminal novo (ou rode: $LINE) para usar o comando hive"
+        if [ -z "$LINKED" ]; then
+            warn "abra um terminal novo (ou rode: $LINE) para usar o comando hive"
+        fi
         ;;
 esac
 
 OTHER=$(command -v hive 2>/dev/null || true)
-if [ -n "$OTHER" ] && [ "$OTHER" != "$BIN_DIR/hive" ]; then
+if [ -n "$OTHER" ] && [ "$OTHER" != "$BIN_DIR/hive" ] && { [ -z "$LINKED" ] || [ "$OTHER" != "$LOCAL_BIN/hive" ]; }; then
     warn "outro 'hive' foi encontrado em $OTHER (provavelmente o Hive Mind antigo). Remova-o para usar o launcher: rm $OTHER"
 fi
 
@@ -107,8 +139,7 @@ cat <<EOF
 
 hive $VERSION instalado. Próximos passos:
   hive install mind
-  hive login --center-url <url do HIVE Center>
-  HIVE_MIND_URL=<url do Mind> hive setup claude-code
-  HIVE_MIND_URL=<url do Mind> hive doctor
-  hive version
+  hive login
+  hive setup
+  hive doctor
 EOF
