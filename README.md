@@ -42,6 +42,29 @@ Qdrant, usa a biblioteca local. O feedback persiste em
 `~/.hive/atlas/feedback.jsonl` (`$HIVE_HOME/atlas/feedback.jsonl` quando definido).
 Veja o [guia do Atlas](../hive_atlas/docs/deploy.md) para o registro no agente.
 
+### Releases privadas
+
+Para instalar produtos de um repositório privado, defina `GH_TOKEN` (ou
+`GITHUB_TOKEN`) no ambiente do launcher, com acesso ao repositório e permissão
+**Contents: read**. `GH_TOKEN` tem prioridade. Com credencial, o launcher consulta
+a release pela API e baixa o asset pelo ID, com `Accept: application/octet-stream`;
+o token não é encaminhado ao CDN nos redirects. A verificação Sigstore e o
+checksum continuam obrigatórios. Sem credencial, mantém o download público.
+
+No Bash, informe o token sem gravá-lo no histórico:
+
+```bash
+read -r -s -p 'GitHub token (Contents: read): ' GH_TOKEN
+printf '\n'
+export GH_TOKEN
+hive install atlas
+unset GH_TOKEN
+```
+
+O token é necessário para baixar/atualizar releases privadas, não para executar
+o MCP já instalado. No servidor, o bootstrap usa o arquivo privado
+`/srv/hive-private/github-release.token`; esse arquivo não é enviado ao cliente.
+
 ## Segurança
 
 - **Origem fixa no código.** `internal/registry` define, para cada produto, o repositório, o nome dos pacotes e a identidade de assinatura aceita: `https://github.com/<repo>/.github/workflows/release.yml@refs/tags/<versão>`, emitida por `https://token.actions.githubusercontent.com`. Nada fora do binário muda isso.
