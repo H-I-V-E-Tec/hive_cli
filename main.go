@@ -7,7 +7,7 @@ import (
 )
 
 // Version is injected at release build time (-X main.Version=vX.Y.Z).
-var Version = "dev"
+var Version = "v1.2.0-dev"
 
 func main() {
 	os.Exit(cli.Main(Version, os.Args[1:]))

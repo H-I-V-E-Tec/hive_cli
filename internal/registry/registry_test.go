@@ -3,7 +3,8 @@ package registry
 import "testing"
 
 func TestAtlasPortablePackageAndFixedOrigin(t *testing.T) {
-	p, ok := Lookup("atlas")
+	p := LegacyAtlas()
+	ok := true
 	if !ok || p.Repo != "H-I-V-E-Tec/hive_atlas" || p.Runtime != PythonZipapp {
 		t.Fatalf("Atlas registration: %+v, found=%v", p, ok)
 	}
@@ -24,5 +25,15 @@ func TestAtlasPortablePackageAndFixedOrigin(t *testing.T) {
 	mind, _ := Lookup("mind")
 	if got := mind.InstalledName("windows"); got != "hive-mind.exe" {
 		t.Fatalf("Mind native name changed: %s", got)
+	}
+}
+
+func TestAtlasNativeFixedOrigin(t *testing.T) {
+	p, _ := Lookup("atlas")
+	if p.Runtime != "" || p.ArchiveBinary != "hive-atlas" || p.Repo != "H-I-V-E-Tec/hive_atlas" {
+		t.Fatal(p)
+	}
+	if got := p.AssetName("v2.0.0", "windows", "amd64"); got != "atlas-v2.0.0-windows-amd64.zip" {
+		t.Fatal(got)
 	}
 }

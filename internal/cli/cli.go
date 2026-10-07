@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	"golang.org/x/mod/semver"
 
+	"github.com/H-I-V-E-Tec/hive_cli/internal/auth"
 	"github.com/H-I-V-E-Tec/hive_cli/internal/dispatch"
 	"github.com/H-I-V-E-Tec/hive_cli/internal/installer"
 	"github.com/H-I-V-E-Tec/hive_cli/internal/registry"
@@ -32,7 +34,7 @@ const (
 	exitUsage = 2
 	// latestFreshFor bounds how long a cached "latest" is shown by `version`.
 	latestFreshFor = 24 * time.Hour
-	// compatProduct receives commands the launcher does not own (login, setup,
+	// compatProduct receives commands the launcher does not own (setup,
 	// doctor, search...), keeping existing docs and scripts working.
 	compatProduct = "mind"
 )
@@ -45,6 +47,7 @@ type App struct {
 	Launcher     string
 	Environ      []string
 	GOOS         string
+	Stdin        io.Reader
 	Stdout       io.Writer
 	Stderr       io.Writer
 }
@@ -68,6 +71,7 @@ func Main(version string, args []string) int {
 		Launcher: launcher,
 		Environ:  os.Environ(),
 		GOOS:     runtime.GOOS,
+		Stdin:    os.Stdin,
 		Stdout:   os.Stdout,
 		Stderr:   os.Stderr,
 	}
@@ -111,10 +115,25 @@ func (a *App) Run(args []string) int {
 		return a.cmdUninstall(args[1:])
 	case "version", "--version":
 		return a.cmdVersion(args[1:])
+	case "login":
+		return a.cmdLogin(args[1:])
+	case "logout":
+		return a.cmdLogout(args[1:])
+	case "setup", "doctor":
+		if len(args) > 1 && args[1] == "atlas" {
+			p, _ := registry.Lookup("atlas")
+			return a.run(p, append([]string{args[0]}, args[2:]...))
+		}
 	case "list":
 		return a.cmdList(args[1:])
 	}
 	if p, ok := registry.Lookup(args[0]); ok {
+		if len(args) > 1 && args[1] == "login" {
+			return a.cmdLogin(args[2:])
+		}
+		if len(args) > 1 && args[1] == "logout" {
+			return a.cmdLogout(args[2:])
+		}
 		return a.run(p, args[1:])
 	}
 	compat, _ := registry.Lookup(compatProduct)
@@ -134,9 +153,13 @@ Produtos:
 
 Executar um produto:
   hive <produto> [args...]               ex.: hive mind search <programa> <consulta>
-  hive atlas                            inicia o MCP Atlas (Python 3.10+)
+  hive atlas                            inicia o MCP Atlas (Go; releases Python antigas continuam suportadas)
 
-Outros comandos (login, setup, doctor, search...) são repassados ao Hive Mind.
+Sessão única:
+  hive login [--center-url URL] [--check] JWT compartilhado com permissões do usuário
+  hive logout                           remove a sessão local de todos os produtos
+
+Outros comandos (setup, doctor, search...) são repassados ao Hive Mind.
 `, a.Version)
 }
 
@@ -145,6 +168,7 @@ func (a *App) state() (*store.State, error) {
 }
 
 func (a *App) binaryPath(p registry.Product, version string) string {
+	p = registry.InstalledProduct(p, a.Store.VersionDir(p.Name, version), a.GOOS)
 	return filepath.Join(a.Store.VersionDir(p.Name, version), p.InstalledName(a.GOOS))
 }
 
@@ -159,6 +183,7 @@ func (a *App) run(p registry.Product, args []string) int {
 		fmt.Fprintf(a.Stderr, "hive: %s não está instalado; rode: hive install %s\n", p.Name, p.Name)
 		return exitUsage
 	}
+	p = registry.InstalledProduct(p, a.Store.VersionDir(p.Name, ps.Active), a.GOOS)
 	command, productArgs, err := dispatch.ProductCommand(p, a.binaryPath(p, ps.Active), args, a.GOOS)
 	if err != nil {
 		fmt.Fprintln(a.Stderr, "hive:", err)
@@ -527,4 +552,39 @@ func (a *App) selfUpdate(ctx context.Context, in *installer.Installer, check boo
 	}
 	fmt.Fprintf(a.Stdout, "✓ hive %s → %s\n", a.Version, latest)
 	return nil
+}
+
+func (a *App) cmdLogin(args []string) int {
+	fs := flag.NewFlagSet("login", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+	center := fs.String("center-url", "", "HIVE Center HTTPS URL")
+	check := fs.Bool("check", false, "validate the shared session")
+	if fs.Parse(args) != nil || fs.NArg() != 0 {
+		fmt.Fprintln(a.Stderr, "usage: hive login [--center-url URL] [--check]")
+		return exitUsage
+	}
+	in := a.Stdin
+	if in == nil {
+		in = os.Stdin
+	}
+	ctx, cancel := signalContext()
+	defer cancel()
+	if err := auth.Login(ctx, a.Store.Root, *center, *check, in, a.Stderr); err != nil {
+		fmt.Fprintln(a.Stderr, "hive:", err)
+		return exitError
+	}
+	return exitOK
+}
+
+func (a *App) cmdLogout(args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintln(a.Stderr, "usage: hive logout")
+		return exitUsage
+	}
+	if err := auth.Logout(a.Store.Root); err != nil {
+		fmt.Fprintln(a.Stderr, "hive:", err)
+		return exitError
+	}
+	fmt.Fprintln(a.Stderr, "Shared HIVE session removed.")
+	return exitOK
 }
