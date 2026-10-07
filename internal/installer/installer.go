@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -87,43 +88,68 @@ func (in *Installer) Latest(ctx context.Context, p registry.Product) (string, er
 // FetchVerified returns the product executable for version after checking the
 // Sigstore signature of SHA256SUMS and the archive digest it lists.
 func (in *Installer) FetchVerified(ctx context.Context, p registry.Product, version string) ([]byte, error) {
+	data, _, err := in.fetchVerified(ctx, p, version)
+	return data, err
+}
+func namedChecksum(data []byte, name string) bool {
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && strings.TrimPrefix(fields[len(fields)-1], "*") == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (in *Installer) fetchVerified(ctx context.Context, p registry.Product, version string) ([]byte, registry.Product, error) {
 	if !semver.IsValid(version) {
-		return nil, fmt.Errorf("versão inválida: %q", version)
+		return nil, p, fmt.Errorf("versão inválida: %q", version)
 	}
 	sums, err := in.Releases.Asset(ctx, p.Repo, version, SumsName, maxSmallFile)
 	if err != nil {
-		return nil, err
+		return nil, p, err
 	}
 	bundleJSON, err := in.Releases.Asset(ctx, p.Repo, version, BundleName, maxSmallFile)
 	if errors.Is(err, release.ErrNotFound) {
-		return nil, fmt.Errorf("%s %s não publica %s; esta versão não pode ser verificada pelo launcher", p.Name, version, BundleName)
+		return nil, p, fmt.Errorf("%s %s não publica %s; esta versão não pode ser verificada pelo launcher", p.Name, version, BundleName)
 	}
 	if err != nil {
-		return nil, err
+		return nil, p, err
 	}
 	if err := in.Signatures.VerifyBundle(sums, bundleJSON, p.SignerIdentity(version)); err != nil {
-		return nil, err
+		return nil, p, err
 	}
 	in.logf("✓ assinatura de %s verificada (%s)", SumsName, p.SignerIdentity(version))
 
 	asset := p.AssetName(version, in.GOOS, in.GOARCH)
+	// Select the format only from the already verified checksum manifest.
+	// A listed native asset that is corrupt or missing must never fall back.
+	if p.Name == "atlas" && !namedChecksum(sums, asset) {
+		legacy := registry.LegacyAtlas()
+		candidate := legacy.AssetName(version, in.GOOS, in.GOARCH)
+		if namedChecksum(sums, candidate) {
+			p = legacy
+			asset = candidate
+		}
+	}
 	expected, err := verify.ExpectedSHA256(sums, asset)
 	if err != nil {
-		return nil, fmt.Errorf("%w (plataforma %s/%s sem pacote nesta versão?)", err, in.GOOS, in.GOARCH)
+		return nil, p, fmt.Errorf("%w (plataforma %s/%s sem pacote nesta versão?)", err, in.GOOS, in.GOARCH)
 	}
 	archive, err := in.Releases.Asset(ctx, p.Repo, version, asset, maxArchive)
 	if err != nil {
-		return nil, err
+		return nil, p, err
 	}
 	if err := verify.CheckSHA256(archive, expected); err != nil {
-		return nil, err
+		return nil, p, err
 	}
 	in.logf("✓ checksum de %s verificado", asset)
 	if p.Runtime == registry.PythonZipapp {
 		// The complete zipapp is installed as a single file; nothing is extracted.
-		return archive, nil
+		return archive, p, nil
 	}
-	return extractBinary(archive, in.GOOS == "windows", registry.ExecutableName(p.ArchiveBinary, in.GOOS), maxBinary)
+	binary, err := extractBinary(archive, in.GOOS == "windows", registry.ExecutableName(p.ArchiveBinary, in.GOOS), maxBinary)
+	return binary, p, err
 }
 
 // Install activates version (or the latest release when version is empty).
@@ -159,7 +185,7 @@ func (in *Installer) Install(ctx context.Context, p registry.Product, version st
 		return Result{}, fmt.Errorf("%s %s é mais antiga que a instalada (%s); use --allow-downgrade se for intencional, ou `hive rollback %s`", p.Name, version, ps.Active, p.Name)
 	}
 
-	binary, err := in.FetchVerified(ctx, p, version)
+	binary, p, err := in.fetchVerified(ctx, p, version)
 	if err != nil {
 		return Result{}, err
 	}
@@ -244,6 +270,7 @@ func (in *Installer) Rollback(ctx context.Context, p registry.Product) (Result, 
 		return Result{}, fmt.Errorf("não há versão anterior de %s para restaurar", p.Name)
 	}
 	target := ps.Previous[0]
+	p = registry.InstalledProduct(p, in.Store.VersionDir(p.Name, target), in.GOOS)
 	binary := in.BinaryPath(p, target)
 	if err := in.smoke(ctx, p, binary, target); err != nil {
 		return Result{}, err
@@ -278,6 +305,7 @@ func (in *Installer) Uninstall(p registry.Product) error {
 }
 
 func (in *Installer) BinaryPath(p registry.Product, version string) string {
+	p = registry.InstalledProduct(p, in.Store.VersionDir(p.Name, version), in.GOOS)
 	return filepath.Join(in.Store.VersionDir(p.Name, version), p.InstalledName(in.GOOS))
 }
 

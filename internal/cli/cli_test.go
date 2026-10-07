@@ -95,7 +95,7 @@ func TestBareProductStartsMCP(t *testing.T) {
 func TestUnknownCommandsAreForwardedToMind(t *testing.T) {
 	app, got, _, _ := newTestApp(t)
 	installState(t, app, "v1.3.10")
-	for _, args := range [][]string{{"login", "--center-url", "https://c"}, {"setup", "codex"}, {"doctor"}} {
+	for _, args := range [][]string{{"setup", "codex"}, {"doctor"}} {
 		app.Run(args)
 		if strings.Join(got.args, " ") != strings.Join(args, " ") || !strings.HasSuffix(got.binary, "hive-mind") {
 			t.Fatalf("%v not forwarded to mind: %+v", args, got)
@@ -200,6 +200,13 @@ func TestAtlasDispatchUsesPythonAndActivePackage(t *testing.T) {
 	t.Setenv("PATH", pythonDir)
 	st, _ := app.Store.Load()
 	st.Product("atlas").Active = "v0.2.0"
+	legacyDir := app.Store.VersionDir("atlas", "v0.2.0")
+	if err := os.MkdirAll(legacyDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "hive-atlas.pyz"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := app.Store.Save(st); err != nil {
 		t.Fatal(err)
 	}

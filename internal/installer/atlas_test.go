@@ -19,7 +19,7 @@ import (
 // A real executable zipapp tests Python invocation and staging, without a server.
 func publishAtlas(t *testing.T, rel *fakeReleases, tag, reported string) registry.Product {
 	t.Helper()
-	p, _ := registry.Lookup("atlas")
+	p := registry.LegacyAtlas()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	f, err := zw.Create("__main__.py")
@@ -37,7 +37,8 @@ func publishAtlas(t *testing.T, rel *fakeReleases, tag, reported string) registr
 	rel.assets[tag+"/"+asset] = buf.Bytes()
 	rel.assets[tag+"/"+SumsName] = []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), asset))
 	rel.assets[tag+"/"+BundleName] = []byte(`{"fake":"bundle"}`)
-	return p
+	native, _ := registry.Lookup("atlas")
+	return native
 }
 
 func newAtlasInstaller(t *testing.T) (*Installer, *fakeReleases, *fakeSignatures) {

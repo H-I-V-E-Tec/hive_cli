@@ -3,7 +3,11 @@
 // or mirror can never redirect a product to a different origin.
 package registry
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
 
 // OIDCIssuer is the issuer of the keyless certificates used to sign releases.
 const OIDCIssuer = "https://token.actions.githubusercontent.com"
@@ -82,13 +86,13 @@ var products = []Product{
 		SmokeArgs:     []string{"version"},
 	},
 	{
-		Name:        "atlas",
-		Description: "Hive Atlas: biblioteca de sinais e recomendações (MCP; Python 3.10+)",
-		Repo:        "H-I-V-E-Tec/hive_atlas",
-		AssetPrefix: "atlas",
-		Command:     "hive-atlas.pyz",
-		Runtime:     PythonZipapp,
-		SmokeArgs:   []string{"version", "--json"},
+		Name:          "atlas",
+		Description:   "Hive Atlas: biblioteca de sinais e recomendações (MCP; Go)",
+		Repo:          "H-I-V-E-Tec/hive_atlas",
+		AssetPrefix:   "atlas",
+		ArchiveBinary: "hive-atlas",
+		Command:       "hive-atlas",
+		SmokeArgs:     []string{"version", "--json"},
 	},
 }
 
@@ -105,4 +109,29 @@ func Lookup(name string) (Product, bool) {
 		}
 	}
 	return Product{}, false
+}
+
+// LegacyAtlas preserves signed Python releases and rollback during migration.
+func LegacyAtlas() Product {
+	p, _ := Lookup("atlas")
+	p.Runtime = PythonZipapp
+	p.Command = "hive-atlas.pyz"
+	p.ArchiveBinary = ""
+	return p
+}
+
+// InstalledProduct resolves the format actually installed for a retained version.
+func InstalledProduct(p Product, dir, goos string) Product {
+	if p.Name != "atlas" {
+		return p
+	}
+	native, _ := Lookup("atlas")
+	if info, err := os.Stat(filepath.Join(dir, native.InstalledName(goos))); err == nil && info.Mode().IsRegular() {
+		return native
+	}
+	legacy := LegacyAtlas()
+	if info, err := os.Stat(filepath.Join(dir, legacy.InstalledName(goos))); err == nil && info.Mode().IsRegular() {
+		return legacy
+	}
+	return p
 }

@@ -10,7 +10,7 @@ import (
 )
 
 func TestPythonProductCommand(t *testing.T) {
-	p, _ := registry.Lookup("atlas")
+	p := registry.LegacyAtlas()
 	for _, tc := range []struct {
 		name, goos, available string
 		prefix                []string
@@ -37,7 +37,7 @@ func TestPythonProductCommand(t *testing.T) {
 }
 
 func TestMissingPythonExplained(t *testing.T) {
-	p, _ := registry.Lookup("atlas")
+	p := registry.LegacyAtlas()
 	_, _, err := productCommand(p, "/atlas.pyz", nil, "linux", func(string) (string, error) {
 		return "", errors.New("not found")
 	})
