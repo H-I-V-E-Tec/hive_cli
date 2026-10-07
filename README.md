@@ -116,6 +116,7 @@ resolve o formato de cada versão instalada. Falha de download/checksum de um
 asset Go listado nunca provoca fallback para Python.
 
 ```bash
+hive update hive
 hive install atlas
 hive login
 hive setup atlas --client codex
