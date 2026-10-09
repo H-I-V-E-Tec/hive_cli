@@ -46,7 +46,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             goos="${target%/*}"; goarch="${target#*/}"
             bin=hive; [ "$goos" = windows ] && bin=hive.exe
             work="$(mktemp -d)"
@@ -60,6 +60,7 @@ jobs:
             fi
           done
           cp install.sh dist/install.sh
+          cp install.ps1 dist/install.ps1
           (cd dist && sha256sum * > SHA256SUMS)
       - name: Smoke test the linux/amd64 build
         env:

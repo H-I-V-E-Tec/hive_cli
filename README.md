@@ -19,6 +19,15 @@ Nenhuma URL precisa ser informada: o Mind já vem com o HIVE Center padrão.
 
 O bootstrap instala só o launcher em `~/.hive/bin` (sem `sudo`) e põe essa pasta no `PATH` dos terminais novos (`.zshrc`, `.bashrc`, `.profile`; o arquivo do shell atual é criado se não existir). Quando `~/.local/bin` já está no `PATH`, como na maioria das distribuições Linux, cria também o atalho `~/.local/bin/hive`, e o comando funciona no mesmo terminal. Com `cosign` instalado, ele também verifica a assinatura do próprio launcher; sem ele, verifica o checksum.
 
+No Windows, execute no PowerShell:
+
+```powershell
+irm https://github.com/H-I-V-E-Tec/hive_cli/releases/latest/download/install.ps1 | iex
+hive version
+```
+
+O script baixa o `.zip` da arquitetura da máquina, verifica o checksum da release (e a assinatura Sigstore se `cosign` estiver instalado), instala em `%USERPROFILE%\.hive\bin` e adiciona a pasta ao PATH do usuário. Abra um novo terminal após a instalação. As releases Windows incluem `amd64` e `arm64` a partir da próxima publicação que contiver `install.ps1`.
+
 ## Comandos
 
 | Comando | O que faz |
