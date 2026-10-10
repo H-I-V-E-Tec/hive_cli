@@ -12,7 +12,7 @@ import (
 	"golang.org/x/term"
 )
 
-const DefaultCenterURL = "https://hive-center.duckdns.org"
+const DefaultCenterURL = "https://hive-center.com.br"
 
 func tokenPath(root string) string {
 	if path := os.Getenv("HIVE_TOKEN_FILE"); path != "" {
